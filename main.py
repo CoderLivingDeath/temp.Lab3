@@ -9,12 +9,8 @@ import CLDNeuralNetwork as cldnn
 def main():
     iris = load_iris()
     y = pd.get_dummies(iris.target).values
-
-    # Нормализация + train/test
     X_norm = (iris.data - iris.data.mean(0)) / iris.data.std(0)
-    X_train, X_test, y_train, y_test = train_test_split(
-        X_norm, y, test_size=0.2, random_state=42
-    )
+    X_train, X_test, y_train, y_test = train_test_split(X_norm, y, test_size=0.2)
 
     nn = cldnn.NeuralNetwork(
         [cldnn.NeuralLayer(4, 12), cldnn.NeuralLayer(12, 3)],
@@ -23,55 +19,55 @@ def main():
     )
     nn.train(X_train, y_train)
 
-    # Тест на датасете
     pred = nn.feedForward(X_test)
-    predicted_classes = np.argmax(pred, axis=1)
-    true_classes = np.argmax(y_test, axis=1)
-    accuracy = np.mean(predicted_classes == true_classes)
 
-    print("\n" + "=" * 60)
-    print("📊 РЕЗУЛЬТАТЫ ТЕСТИРОВАНИЯ")
-    print("=" * 60)
-    print(f"✅ Общая точность: {accuracy * 100:.1f}%")
+    # подсчет точности
+    correct = 0
+    total = len(X_test)
+    for i in range(total):
+        true_class = 0
+        max_true = y_test[i][0]
+        for j in range(1, 3):
+            if y_test[i][j] > max_true:
+                max_true = y_test[i][j]
+                true_class = j
 
-    # Ручной ввод
-    print("\n🖱️ РУЧНОЙ ВВОД ДЛЯ ПРЕДСКАЗАНИЯ")
-    print("Введите 4 измерения Iris (в см):")
-    print("sepal length, sepal width, petal length, petal width")
+        pred_class = 0
+        max_pred = pred[i][0]
+        for j in range(1, 3):
+            if pred[i][j] > max_pred:
+                max_pred = pred[i][j]
+                pred_class = j
 
-    while True:
-        try:
-            line = input("Данные (4 числа через пробел) или 'q' для выхода: ").strip()
-            if line.lower() == "q":
+        if pred_class == true_class:
+            correct = correct + 1
+
+    accuracy = correct / total
+    print(f"\nТочность: {accuracy * 100:.1f}% ({total} тестов)")
+
+    # Первые 5 предсказаний
+    print("Первые предсказания:")
+    class_names = ["setosa", "versicolor", "virginica"]
+    for i in range(5):
+        # Находим истинный класс
+        true_class = 0
+        for j in range(3):
+            if y_test[i][j] == 1:
+                true_class = j
                 break
 
-            values = np.array(list(map(float, line.split()))).reshape(1, -1)
+        # Находим предсказанный класс
+        pred_class = 0
+        max_prob = pred[i][0]
+        for j in range(1, 3):
+            if pred[i][j] > max_prob:
+                max_prob = pred[i][j]
+                pred_class = j
 
-            # Нормализация по тем же параметрам
-            mean = iris.data.mean(0)
-            std = iris.data.std(0)
-            values_norm = (values - mean) / std
-
-            prediction = nn.feedForward(values_norm)[0]
-            predicted_class = np.argmax(prediction)
-            confidence = prediction[predicted_class]
-
-            class_names = ["setosa", "versicolor", "virginica"]
-            print(
-                f"🌸 Предсказание: **{class_names[predicted_class]}** "
-                f"({confidence:.1%} уверенности)"
-            )
-            print(
-                f"   Вероятности: setosa={prediction[0]:.1%}, "
-                f"versicolor={prediction[1]:.1%}, virginica={prediction[2]:.1%}"
-            )
-            print()
-
-        except ValueError:
-            print("❌ Введите 4 числа через пробел!")
-        except KeyboardInterrupt:
-            print("\n👋 До свидания!")
-            break
+        true_name = class_names[true_class]
+        pred_name = class_names[pred_class]
+        status = "OK" if true_class == pred_class else "ERROR"
+        print(f"  {true_name} → {pred_name} {max_prob:.1%} {status}")
 
 
 if __name__ == "__main__":
