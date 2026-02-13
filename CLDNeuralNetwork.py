@@ -6,6 +6,14 @@ import numpy as np
 import pandas as pd
 
 
+def LeakyReLU(inputs, alpha=0.01):
+    return np.where(inputs > 0, inputs, alpha * inputs)
+
+
+def LeakyReLU_derivative(z, alpha=0.01):
+    return np.where(z > 0, 1.0, alpha)
+
+
 def ReLUActivation(inputs):
     return np.maximum(0, inputs)
 
@@ -20,25 +28,35 @@ def ReLU_derivative(z):
 
 
 def softmax_cross_entropy_derivative(output, y_true):
-    # Для softmax + cross-entropy: dL/dz = output - y_true
-    return (output - y_true) / y_true.shape[0]
+    return output - y_true
 
 
 class NeuralLayer:
-    def __init__(self, input_size, output_size):
+    def __init__(
+        self, input_size, output_size, activation=None, activation_derivative=None
+    ):
         self.weights = np.random.randn(input_size, output_size) * 0.1
         self.bias = np.zeros((1, output_size))
 
         self.inputs = None
         self.z = None
+        self.a = None
+        self.activation = activation
+        self.activation_derivative = activation_derivative
 
     def forward(self, inputs):
         self.inputs = inputs
         self.z = np.dot(inputs, self.weights) + self.bias
+        if self.activation:
+            self.a = self.activation(self.z)
+            return self.a
         return self.z
 
     def backward(self, grad_output, learning_rate):
-        grad_z = grad_output
+        if self.activation_derivative:
+            grad_z = grad_output * self.activation_derivative(self.z)
+        else:
+            grad_z = grad_output
 
         grad_weights = np.dot(self.inputs.T, grad_z)
         self.weights -= learning_rate * grad_weights
@@ -51,46 +69,31 @@ class NeuralLayer:
 
 
 class NeuralNetwork:
-    def __init__(
-        self,
-        layers: List[NeuralLayer],
-        activation=ReLUActivation,
-        outputActivation=Softmax,
-    ):
+    def __init__(self, layers: List[NeuralLayer]):
         self.layers = layers
-        self.activation = activation
-        self.outputActivation = outputActivation
 
     def feedForward(self, inputs):
         current = inputs
-        for i, layer in enumerate(self.layers):
+        for layer in self.layers:
             current = layer.forward(current)
-            if i < len(self.layers) - 1:
-                current = self.activation(current)
-            else:
-                current = self.outputActivation(current)
         return current
+
+    def cross_entropy_loss(self, output, y_true):
+        epsilon = 1e-8
+        per_sample_loss = -np.sum(y_true * np.log(output + epsilon), axis=1)
+        return np.mean(per_sample_loss)
 
     def train(self, X, y, epochs=1000, learning_rate=0.1):
         for epoch in range(epochs):
             output = self.feedForward(X)
-
-            loss = -np.mean(y * np.log(output + 1e-8))
+            # loss = self.cross_entropy_loss(output, y)
+            # print(f"Эпоха {epoch}, Loss: {loss:.4f}")
 
             grad = softmax_cross_entropy_derivative(output, y)
 
-            for i in reversed(range(len(self.layers))):
-                layer = self.layers[i]
-
-                if i < len(self.layers) - 1:
-                    grad = grad * ReLU_derivative(layer.z)
-
+            for layer in reversed(self.layers):
                 grad = layer.backward(grad, learning_rate)
 
-            if epoch % 100 == 0:
-                print(f"Эпоха {epoch}, Loss: {loss:.4f}")
-
-    # ==== AI ====
     def save_csv(self, filename):
         data_rows = []
 
@@ -98,8 +101,12 @@ class NeuralNetwork:
             {
                 "type": "HEADER",
                 "layer": len(self.layers),
-                "input_activation": self.activation.__name__,
-                "output_activation": self.outputActivation.__name__,
+                "input_activation": self.layers[0].activation.__name__
+                if self.layers[0].activation
+                else None,
+                "output_activation": self.layers[-1].activation.__name__
+                if self.layers[-1].activation
+                else None,
             }
         )
         # Каждый слой
@@ -141,13 +148,12 @@ class NeuralNetwork:
 
         df = pd.DataFrame(data_rows)
         df.to_csv(filename, index=False)
-        print(f"✅ Сеть сохранена в {filename}")
+        print(f"Model saved to {filename}")
 
     def load_csv(self, filename):
         """Загружает слои из CSV файла"""
         if not os.path.exists(filename):
-            print(f"❌ Файл {filename} не найден!")
-            return
+            raise FileNotFoundError(f"File {filename} not found!")
 
         df = pd.read_csv(filename)
 
@@ -184,5 +190,3 @@ class NeuralNetwork:
             layer.bias = bias
 
             self.layers.append(layer)
-
-        print(f"✅ Загружено {layers_count} слоёв из {filename}")

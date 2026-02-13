@@ -1,3 +1,5 @@
+import sys
+
 import numpy as np
 import pandas as pd
 from sklearn.datasets import load_iris
@@ -6,69 +8,76 @@ from sklearn.model_selection import train_test_split
 import CLDNeuralNetwork as cldnn
 
 
-def main():
+def Train(outputPath):
+    print("- Загрузка датасета Iris...")
     iris = load_iris()
+
     y = pd.get_dummies(iris.target).values
     X_norm = (iris.data - iris.data.mean(0)) / iris.data.std(0)
-    X_train, X_test, y_train, y_test = train_test_split(X_norm, y, test_size=0.2)
+    X_train, _, y_train, _ = train_test_split(X_norm, y, test_size=0.2, random_state=42)
 
+    print("- Создание нейронной сети: 4 -> 12 (LeakyReLU) -> 3 (Softmax)")
     nn = cldnn.NeuralNetwork(
-        [cldnn.NeuralLayer(4, 12), cldnn.NeuralLayer(12, 3)],
-        cldnn.ReLUActivation,
-        cldnn.Softmax,
+        [
+            cldnn.NeuralLayer(
+                4,
+                12,
+                activation=cldnn.LeakyReLU,
+                activation_derivative=cldnn.LeakyReLU_derivative,
+            ),
+            cldnn.NeuralLayer(12, 3, activation=cldnn.Softmax),
+        ]
     )
-    nn.train(X_train, y_train)
+    print(f"- Начало обучения: {len(X_train)} примеров, 1000 эпох, lr=0.01...")
+    nn.train(X_train, y_train, epochs=1000, learning_rate=0.01)
+    nn.save_csv(outputPath)
+    print(f"- Модель сохранена в {outputPath}")
 
-    pred = nn.feedForward(X_test)
 
-    # подсчет точности
-    correct = 0
-    total = len(X_test)
-    for i in range(total):
-        true_class = 0
-        max_true = y_test[i][0]
-        for j in range(1, 3):
-            if y_test[i][j] > max_true:
-                max_true = y_test[i][j]
-                true_class = j
+def Predict(modelPath, data):
+    nn = cldnn.NeuralNetwork(
+        [
+            cldnn.NeuralLayer(
+                4,
+                12,
+                activation=cldnn.ReLUActivation,
+                activation_derivative=cldnn.ReLU_derivative,
+            ),
+            cldnn.NeuralLayer(12, 3, activation=cldnn.Softmax),
+        ]
+    )
+    nn.load_csv(modelPath)
 
-        pred_class = 0
-        max_pred = pred[i][0]
-        for j in range(1, 3):
-            if pred[i][j] > max_pred:
-                max_pred = pred[i][j]
-                pred_class = j
+    iris = load_iris()
+    X_norm = (data - iris.data.mean(0)) / iris.data.std(0)
+    result = nn.feedForward(X_norm)
+    return result
 
-        if pred_class == true_class:
-            correct = correct + 1
 
-    accuracy = correct / total
-    print(f"\nТочность: {accuracy * 100:.1f}% ({total} тестов)")
+def ParsePredict(data):
+    if len(data) < 3:
+        sys.exit(1)
+    modelPath = data[1]
+    data_str = data[2]
+    parsed_data = np.array([float(x) for x in data_str.split(",")], ndmin=2)
+    return modelPath, parsed_data
 
-    # Первые 5 предсказаний
-    print("Первые предсказания:")
-    class_names = ["setosa", "versicolor", "virginica"]
-    for i in range(5):
-        # Находим истинный класс
-        true_class = 0
-        for j in range(3):
-            if y_test[i][j] == 1:
-                true_class = j
-                break
 
-        # Находим предсказанный класс
-        pred_class = 0
-        max_prob = pred[i][0]
-        for j in range(1, 3):
-            if pred[i][j] > max_prob:
-                max_prob = pred[i][j]
-                pred_class = j
-
-        true_name = class_names[true_class]
-        pred_name = class_names[pred_class]
-        status = "OK" if true_class == pred_class else "ERROR"
-        print(f"  {true_name} → {pred_name} {max_prob:.1%} {status}")
+def ParseTrain(data):
+    if len(data) < 3:
+        sys.exit(1)
+    return data[2]
 
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) < 2:
+        sys.exit(1)
+
+    cmd = sys.argv[1]
+
+    if cmd == "train":
+        Train(ParseTrain(sys.argv))
+        pass
+    elif cmd == "predict":
+        Predict(ParsePredict(sys.argv))
+        pass
