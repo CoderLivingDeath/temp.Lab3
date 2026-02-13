@@ -27,22 +27,32 @@ def ReLU_derivative(z):
     return (z > 0).astype(float)
 
 
+ACTIVATIONS = {
+    "LeakyReLU": (LeakyReLU, LeakyReLU_derivative),
+    "ReLU": (ReLUActivation, ReLU_derivative),
+    "Softmax": (Softmax, None),
+}
+
+
 def softmax_cross_entropy_derivative(output, y_true):
     return output - y_true
 
 
 class NeuralLayer:
-    def __init__(
-        self, input_size, output_size, activation=None, activation_derivative=None
-    ):
+    def __init__(self, input_size, output_size, activation=None):
         self.weights = np.random.randn(input_size, output_size) * 0.1
         self.bias = np.zeros((1, output_size))
 
         self.inputs = None
         self.z = None
         self.a = None
-        self.activation = activation
-        self.activation_derivative = activation_derivative
+        self.activation_name = activation
+
+        if activation:
+            self.activation, self.activation_derivative = ACTIVATIONS[activation]
+        else:
+            self.activation = None
+            self.activation_derivative = None
 
     def forward(self, inputs):
         self.inputs = inputs
@@ -86,13 +96,16 @@ class NeuralNetwork:
     def train(self, X, y, epochs=1000, learning_rate=0.1):
         for epoch in range(epochs):
             output = self.feedForward(X)
-            # loss = self.cross_entropy_loss(output, y)
-            # print(f"Эпоха {epoch}, Loss: {loss:.4f}")
+            loss = self.cross_entropy_loss(output, y)
 
             grad = softmax_cross_entropy_derivative(output, y)
+            total_grad = 0
 
             for layer in reversed(self.layers):
                 grad = layer.backward(grad, learning_rate)
+                total_grad += np.mean(np.abs(grad))
+
+            print(f"Эпоха {epoch}, Loss: {loss:.4f}, Grad: {total_grad:.6f}")
 
     def save_csv(self, filename):
         data_rows = []
@@ -101,12 +114,8 @@ class NeuralNetwork:
             {
                 "type": "HEADER",
                 "layer": len(self.layers),
-                "input_activation": self.layers[0].activation.__name__
-                if self.layers[0].activation
-                else None,
-                "output_activation": self.layers[-1].activation.__name__
-                if self.layers[-1].activation
-                else None,
+                "input_activation": self.layers[0].activation_name,
+                "output_activation": self.layers[-1].activation_name,
             }
         )
         # Каждый слой
@@ -160,7 +169,11 @@ class NeuralNetwork:
         # Читаем заголовок
         header_row = df[df["type"] == "HEADER"].iloc[0]
         layers_count = int(header_row["layer"])
+        input_activation = header_row["input_activation"]
+        output_activation = header_row["output_activation"]
         self.layers = []
+
+        activation_map = {0: input_activation, 1: output_activation}
 
         for i in range(layers_count):
             # Размеры слоя
@@ -168,8 +181,9 @@ class NeuralNetwork:
             input_size = int(shape_row["input_size"])
             output_size = int(shape_row["output_size"])
 
-            # Создаём пустой слой
-            layer = NeuralLayer(input_size, output_size)
+            # Создаём слой с активацией
+            act = activation_map.get(i)
+            layer = NeuralLayer(input_size, output_size, activation=act)
 
             # Загружаем веса
             weights_data = df[(df["type"] == f"WEIGHTS_L{i}")].sort_values(

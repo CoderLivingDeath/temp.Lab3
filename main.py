@@ -13,23 +13,18 @@ def Train(outputPath):
     iris = load_iris()
 
     y = pd.get_dummies(iris.target).values
-    X_norm = (iris.data - iris.data.mean(0)) / iris.data.std(0)
+    X_norm = (iris.data - iris.data.mean()) / iris.data.std()
     X_train, _, y_train, _ = train_test_split(X_norm, y, test_size=0.2, random_state=42)
 
     print("- Создание нейронной сети: 4 -> 12 (LeakyReLU) -> 3 (Softmax)")
     nn = cldnn.NeuralNetwork(
         [
-            cldnn.NeuralLayer(
-                4,
-                12,
-                activation=cldnn.LeakyReLU,
-                activation_derivative=cldnn.LeakyReLU_derivative,
-            ),
-            cldnn.NeuralLayer(12, 3, activation=cldnn.Softmax),
+            cldnn.NeuralLayer(4, 12, activation="LeakyReLU"),
+            cldnn.NeuralLayer(12, 3, activation="Softmax"),
         ]
     )
-    print(f"- Начало обучения: {len(X_train)} примеров, 1000 эпох, lr=0.01...")
-    nn.train(X_train, y_train, epochs=1000, learning_rate=0.01)
+    print(f"- Начало обучения: {len(X_train)} примеров, 10000 эпох, lr=0.001...")
+    nn.train(X_train, y_train, epochs=10000, learning_rate=0.001)
     nn.save_csv(outputPath)
     print(f"- Модель сохранена в {outputPath}")
 
@@ -37,13 +32,8 @@ def Train(outputPath):
 def Predict(modelPath, data):
     nn = cldnn.NeuralNetwork(
         [
-            cldnn.NeuralLayer(
-                4,
-                12,
-                activation=cldnn.ReLUActivation,
-                activation_derivative=cldnn.ReLU_derivative,
-            ),
-            cldnn.NeuralLayer(12, 3, activation=cldnn.Softmax),
+            cldnn.NeuralLayer(4, 12, activation="ReLU"),
+            cldnn.NeuralLayer(12, 3, activation="Softmax"),
         ]
     )
     nn.load_csv(modelPath)
@@ -55,10 +45,10 @@ def Predict(modelPath, data):
 
 
 def ParsePredict(data):
-    if len(data) < 3:
+    if len(data) < 4:
         sys.exit(1)
-    modelPath = data[1]
-    data_str = data[2]
+    modelPath = data[2]
+    data_str = data[3]
     parsed_data = np.array([float(x) for x in data_str.split(",")], ndmin=2)
     return modelPath, parsed_data
 
@@ -79,5 +69,13 @@ if __name__ == "__main__":
         Train(ParseTrain(sys.argv))
         pass
     elif cmd == "predict":
-        Predict(ParsePredict(sys.argv))
+        modelPath, data = ParsePredict(sys.argv)
+        r = Predict(modelPath, data)
+        classes = ["setosa", "versicolor", "virginica"]
+        predicted = classes[np.argmax(r)]
+        print(f"- Входные данные: {data}")
+        print(f"- setosa: {r[0][0]:.4f}")
+        print(f"- versicolor: {r[0][1]:.4f}")
+        print(f"- virginica: {r[0][2]:.4f}")
+        print(f"- Предсказание: {predicted}")
         pass
