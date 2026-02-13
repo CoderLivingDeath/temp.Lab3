@@ -18,24 +18,28 @@ def ReLUActivation(inputs):
     return np.maximum(0, inputs)
 
 
+def ReLU_derivative(z):
+    return (z > 0).astype(float)
+
+
 def Softmax(inputs):
     exp_inputs = np.exp(inputs - np.max(inputs, axis=1, keepdims=True))
     return exp_inputs / np.sum(exp_inputs, axis=1, keepdims=True)
 
 
-def ReLU_derivative(z):
-    return (z > 0).astype(float)
-
-
 ACTIVATIONS = {
-    "LeakyReLU": (LeakyReLU, LeakyReLU_derivative),
-    "ReLU": (ReLUActivation, ReLU_derivative),
-    "Softmax": (Softmax, None),
+    "LeakyReLU": LeakyReLU,
+    "ReLU": ReLUActivation,
+    "Softmax": Softmax,
 }
 
 
-def softmax_cross_entropy_derivative(output, y_true):
-    return output - y_true
+def mse_loss(output, y_true):
+    return np.mean((output - y_true) ** 2)
+
+
+def mse_grad(output, y_true):
+    return 2 * (output - y_true) / y_true.shape[0]
 
 
 class NeuralLayer:
@@ -49,10 +53,9 @@ class NeuralLayer:
         self.activation_name = activation
 
         if activation:
-            self.activation, self.activation_derivative = ACTIVATIONS[activation]
+            self.activation = ACTIVATIONS[activation]
         else:
             self.activation = None
-            self.activation_derivative = None
 
     def forward(self, inputs):
         self.inputs = inputs
@@ -63,10 +66,7 @@ class NeuralLayer:
         return self.z
 
     def backward(self, grad_output, learning_rate):
-        if self.activation_derivative:
-            grad_z = grad_output * self.activation_derivative(self.z)
-        else:
-            grad_z = grad_output
+        grad_z = grad_output
 
         grad_weights = np.dot(self.inputs.T, grad_z)
         self.weights -= learning_rate * grad_weights
@@ -88,17 +88,12 @@ class NeuralNetwork:
             current = layer.forward(current)
         return current
 
-    def cross_entropy_loss(self, output, y_true):
-        epsilon = 1e-8
-        per_sample_loss = -np.sum(y_true * np.log(output + epsilon), axis=1)
-        return np.mean(per_sample_loss)
-
     def train(self, X, y, epochs=1000, learning_rate=0.1):
         for epoch in range(epochs):
             output = self.feedForward(X)
-            loss = self.cross_entropy_loss(output, y)
+            loss = mse_loss(output, y)
 
-            grad = softmax_cross_entropy_derivative(output, y)
+            grad = mse_grad(output, y)
             total_grad = 0
 
             for layer in reversed(self.layers):
