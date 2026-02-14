@@ -1,6 +1,5 @@
 import os
-import pickle
-from typing import List
+from typing import List, Optional
 
 import numpy as np
 import pandas as pd
@@ -28,9 +27,8 @@ def Softmax(inputs):
 
 
 ACTIVATIONS = {
-    "LeakyReLU": LeakyReLU,
-    "ReLU": ReLUActivation,
-    "Softmax": Softmax,
+    "ReLU": (ReLUActivation, ReLU_derivative),
+    "Softmax": (Softmax, None),
 }
 
 
@@ -43,35 +41,40 @@ def mse_grad(output, y_true):
 
 
 class NeuralLayer:
-    def __init__(self, input_size, output_size, activation=None):
-        self.weights = np.random.randn(input_size, output_size) * 0.1
+    def __init__(self, input_size, output_size, activation: Optional[str] = None):
+        self.weights = np.random.randn(input_size, output_size)
         self.bias = np.zeros((1, output_size))
 
         self.inputs = None
         self.z = None
         self.a = None
-        self.activation_name = activation
+        self.activation = activation
 
-        if activation:
-            self.activation = ACTIVATIONS[activation]
-        else:
-            self.activation = None
+    def __str__(self):
+        str = ""
+        str += f"Layer Weights:\n {self.weights}\n"
+        str += f"Layer Bias:\n {self.bias}\n"
+        return str
 
     def forward(self, inputs):
         self.inputs = inputs
         self.z = np.dot(inputs, self.weights) + self.bias
         if self.activation:
-            self.a = self.activation(self.z)
+            self.a = ACTIVATIONS[self.activation][0](self.z)
             return self.a
         return self.z
 
     def backward(self, grad_output, learning_rate):
-        grad_z = grad_output
+        if self.activation and ACTIVATIONS[self.activation][1]:
+            grad_z = grad_output * ACTIVATIONS[self.activation][1](self.z)
+        else:
+            grad_z = grad_output
 
+        assert self.inputs is not None, "forward() must be called first"
         grad_weights = np.dot(self.inputs.T, grad_z)
         self.weights -= learning_rate * grad_weights
 
-        grad_bias = np.sum(grad_z, axis=0, keepdims=True)
+        grad_bias = np.mean(grad_z, axis=0, keepdims=True)
         self.bias -= learning_rate * grad_bias
 
         grad_input = np.dot(grad_z, self.weights.T)
@@ -79,8 +82,11 @@ class NeuralLayer:
 
 
 class NeuralNetwork:
-    def __init__(self, layers: List[NeuralLayer]):
-        self.layers = layers
+    def __init__(self, layers: Optional[List[NeuralLayer]] = None):
+        self.layers = layers if layers else []
+
+    def add_layer(self, layer):
+        self.layers.append(layer)
 
     def feedForward(self, inputs):
         current = inputs
@@ -102,100 +108,117 @@ class NeuralNetwork:
 
             print(f"Эпоха {epoch}, Loss: {loss:.4f}, Grad: {total_grad:.6f}")
 
-    def save_csv(self, filename):
-        data_rows = []
+    # nn
+    # layer1
+    # - weights
+    # - bias
+    # - activation
+    # layer2
+    # - weights
+    # - bias
+    # - activation
+    # ...
 
-        data_rows.append(
-            {
-                "type": "HEADER",
-                "layer": len(self.layers),
-                "input_activation": self.layers[0].activation_name,
-                "output_activation": self.layers[-1].activation_name,
-            }
+    def save_csv(self, filename):
+        columns = [
+            "type",
+            "Layer",
+            "activation",
+            "input_size",
+            "output_size",
+            "row",
+            "col",
+            "value",
+        ]
+
+        data = []
+
+        data.append(
+            [
+                "HEADER",
+                len(self.layers),
+                None,
+                self.layers[0].weights.shape[0],
+                self.layers[-1].weights.shape[1],
+                None,
+                None,
+                None,
+            ]
         )
-        # Каждый слой
+
         for i, layer in enumerate(self.layers):
-            # Размеры слоя
-            data_rows.append(
-                {
-                    "type": "LAYER_SHAPE",
-                    "layer": i,
-                    "input_size": layer.weights.shape[0],
-                    "output_size": layer.weights.shape[1],
-                }
+            data.append(
+                [
+                    "LAYER",
+                    i,
+                    layer.activation,
+                    layer.weights.shape[0],
+                    layer.weights.shape[1],
+                    None,
+                    None,
+                    None,
+                ]
             )
 
-            # Веса слоя
             for r in range(layer.weights.shape[0]):
                 for c in range(layer.weights.shape[1]):
-                    data_rows.append(
-                        {
-                            "type": f"WEIGHTS_L{i}",
-                            "layer": i,
-                            "row": r,
-                            "col": c,
-                            "value": layer.weights[r, c],
-                        }
+                    data.append(
+                        [
+                            "WEIGHT",
+                            i,
+                            None,
+                            None,
+                            None,
+                            r,
+                            c,
+                            layer.weights[r, c],
+                        ]
                     )
 
-            # Bias слоя
             for c in range(layer.bias.shape[1]):
-                data_rows.append(
-                    {
-                        "type": f"BIAS_L{i}",
-                        "layer": i,
-                        "row": 0,
-                        "col": c,
-                        "value": layer.bias[0, c],
-                    }
+                data.append(
+                    [
+                        "BIAS",
+                        i,
+                        None,
+                        None,
+                        None,
+                        0,
+                        c,
+                        layer.bias[0, c],
+                    ]
                 )
 
-        df = pd.DataFrame(data_rows)
-        df.to_csv(filename, index=False)
-        print(f"Model saved to {filename}")
+        df = pd.DataFrame(data, columns=columns)
+        df.to_csv(filename)
 
     def load_csv(self, filename):
-        """Загружает слои из CSV файла"""
         if not os.path.exists(filename):
             raise FileNotFoundError(f"File {filename} not found!")
 
         df = pd.read_csv(filename)
-
-        # Читаем заголовок
-        header_row = df[df["type"] == "HEADER"].iloc[0]
-        layers_count = int(header_row["layer"])
-        input_activation = header_row["input_activation"]
-        output_activation = header_row["output_activation"]
         self.layers = []
 
-        activation_map = {0: input_activation, 1: output_activation}
+        header_row = df[df["type"] == "HEADER"].iloc[0]  # type: ignore
+        layers_count = int(header_row["Layer"])  # type: ignore
 
         for i in range(layers_count):
-            # Размеры слоя
-            shape_row = df[df["type"] == f"LAYER_SHAPE"].iloc[i]
-            input_size = int(shape_row["input_size"])
-            output_size = int(shape_row["output_size"])
+            layer_row = df[(df["type"] == "LAYER") & (df["Layer"] == i)].iloc[0]  # type: ignore
+            activation = layer_row["activation"]  # type: ignore
+            input_size = int(layer_row["input_size"])  # type: ignore
+            output_size = int(layer_row["output_size"])  # type: ignore
 
-            # Создаём слой с активацией
-            act = activation_map.get(i)
-            layer = NeuralLayer(input_size, output_size, activation=act)
+            layer = NeuralLayer(input_size, output_size, activation=activation)
 
-            # Загружаем веса
-            weights_data = df[(df["type"] == f"WEIGHTS_L{i}")].sort_values(
-                ["row", "col"]
-            )
-            weights = np.zeros((input_size, output_size))
+            weights_data = df[(df["type"] == "WEIGHT") & (df["Layer"] == i)]
             for _, row in weights_data.iterrows():
-                r, c = int(row["row"]), int(row["col"])
-                weights[r, c] = row["value"]
-            layer.weights = weights
+                r = int(row["row"])  # type: ignore
+                c = int(row["col"])  # type: ignore
+                layer.weights[r, c] = row["value"]  # type: ignore
 
-            # Загружаем bias
-            bias_data = df[(df["type"] == f"BIAS_L{i}")].sort_values("col")
-            bias = np.zeros((1, output_size))
+            bias_data = df[(df["type"] == "BIAS") & (df["Layer"] == i)]
             for _, row in bias_data.iterrows():
-                c = int(row["col"])
-                bias[0, c] = row["value"]
-            layer.bias = bias
+                c = int(row["col"])  # type: ignore
+                layer.bias[0, c] = row["value"]  # type: ignore
 
             self.layers.append(layer)

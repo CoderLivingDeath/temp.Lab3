@@ -4,38 +4,34 @@ import numpy as np
 import pandas as pd
 from sklearn.datasets import load_iris
 from sklearn.model_selection import train_test_split
+from sklearn.utils import Bunch
 
 import CLDNeuralNetwork as cldnn
 
 
 def Train(outputPath):
     print("- Загрузка датасета Iris...")
-    iris = load_iris()
+    iris: Bunch = load_iris()  # type: ignore
 
     y = pd.get_dummies(iris.target).values
     X_norm = (iris.data - iris.data.mean()) / iris.data.std()
     X_train, _, y_train, _ = train_test_split(X_norm, y, test_size=0.2, random_state=42)
 
-    print("- Создание нейронной сети: 4 -> 12 (LeakyReLU) -> 3 (Softmax)")
-    nn = cldnn.NeuralNetwork(
-        [
-            cldnn.NeuralLayer(4, 12, activation="LeakyReLU"),
-            cldnn.NeuralLayer(12, 3, activation="Softmax"),
-        ]
-    )
-    print(f"- Начало обучения: {len(X_train)} примеров, 10000 эпох, lr=0.001...")
-    nn.train(X_train, y_train, epochs=10000, learning_rate=0.001)
-    nn.save_csv(outputPath)
-    print(f"- Модель сохранена в {outputPath}")
-
-
-def Predict(modelPath, data):
+    print("- Создание нейронной сети: 4 -> 12 (ReLU) -> 3 (Softmax)")
     nn = cldnn.NeuralNetwork(
         [
             cldnn.NeuralLayer(4, 12, activation="ReLU"),
             cldnn.NeuralLayer(12, 3, activation="Softmax"),
         ]
     )
+    print(f"- Начало обучения: {len(X_train)} примеров, 10000 эпох, lr=0.001...")
+    nn.train(X_train, y_train, epochs=1000, learning_rate=0.1)
+    nn.save_csv(outputPath)
+    print(f"- Модель сохранена в {outputPath}")
+
+
+def Predict(modelPath, data):
+    nn = cldnn.NeuralNetwork()
     nn.load_csv(modelPath)
 
     iris = load_iris()
